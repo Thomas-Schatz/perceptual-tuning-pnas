@@ -1,0 +1,303 @@
+# INVESTIGATING PHONETIC CATEGORINESS
+# This file is not meant to be ran directly. It should instead be read and adapted as needed.
+# This uses results of computations from data_prep.txt, model_train.txt and abx_eval.txt.
+
+# Change this as appropriate for your system
+export root=/scratch1/users/thomas/perceptual-tuning-data  # data folder for the project
+
+mkdir $root/eval/phoncat
+
+
+#####################################################################
+# For supervised baselines and DPGMM models trained on full corpora #
+#####################################################################
+
+###
+# Setting up data directory structrure
+###
+
+cd $root/eval/
+mkdir no_phon_cats
+cd no_phone_cats
+mkdir conf
+mkdir phone_rep
+mkdir err
+mkdir out
+mkdir phone_rep_count
+mkdir phone_rep_fig
+
+
+
+###
+# Generating conf files
+###
+# the content of the subfolder results/no_phon_cats of the perceptual-tuning-pnas git repository should be on path for the following to work
+
+# the following values are just one example and the following needs to be done for each train_set, each test_set or each train s_set + test_set combination of interest as indicated
+train_set=WSJ 
+test_set=WSJ
+test_coset=GPJ
+
+### Once for each `test_set` value:
+python get_corpus_files.py $root/corpora/ $test_set $test_coset $root/eval/no_phon_cats/conf/corpus_"$test_set".txt
+
+### Once for each `train_set` value:
+python get_model_files.py $root/models/supervised_baseline/$train_set/transitions.txt  $root/models/supervised_baseline/$train_set/phones.txt $root/models/dpgmm/$train_set/models/full_train_set/1501-final.mat $root/eval/no_phon_cats/conf/model_"$train_set".txt
+
+### Once for each `test_set/train_set` pair:
+python get_feat_files.py $root/models/dpgmm/$train_set/posteriors $root/models/supervised_baseline/$train_set/posteriors $test_set $root/eval/no_phon_cats/conf/feat_"$train_set"_"$test_set".txt
+
+
+### Optional: list of phone IDs to exclude based on listening tests
+(see jupyter notebook in perceptual-tuning/results git)
+
+
+
+###
+# Get phone duration statistics from forced alignments (this is an example, needs to be done for all test sets)
+###
+# the content of the unit_activations folder of the no_phon_cats git repo (https://github.com/Thomas-Schatz/no_phon_cats) should be on path for the following to work
+
+confdir=$root/eval/no_phon_cats/conf
+resdir=$root/eval/no_phon_cats/unit_activation
+corpus=WSJ
+name=forced_alignment_durs_"$corpus"
+python duration_from_forced_alignment.py $corpus $confdir/corpus_"$corpus".txt $resdir/"$name".txt --verbose
+
+
+
+###
+# Get activation statistics (this is an example, needs to be done for all train_set/test_set combinations of interest)
+###
+# the content of the unit_activations folder of the no_phon_cats git repo (https://github.com/Thomas-Schatz/no_phon_cats) should be on path for the following to work
+
+confdir=$root/eval/no_phon_cats/conf
+resdir=$root/eval/no_phon_cats/unit_activation
+max_nb_frame=0  # 1 2 3
+duration_test_type=basic  # conservative
+train_set=WSJ
+test_set=WSJ
+name=activation_"$train_set"_"$test_set"_skip${max_nb_frame}_${duration_test_type}
+python main.py $test_set $confdir/corpus_"$test_set".txt  $confdir/feat_"$train_set"_"$test_set".txt $confdir/model_"$train_set".txt $resdir/"$name" --verbose --max_nb_frame $max_nb_frame --duration_test_type $duration_test_type
+
+
+
+###
+# Get model-reps for each phone+context in a csv (this is an example, needs to be done for all train_set/test_set combinations of interest)
+###
+# the content of the phone_rep folder of the no_phon_cats git repo (https://github.com/Thomas-Schatz/no_phon_cats) should be on path for the following to work
+
+confdir=$root/eval/no_phon_cats/conf
+resdir=$root/eval/no_phon_cats/phone_rep
+train_set=WSJ
+test_set=WSJ
+dur=46  # central +/- dur ms (i.e. total coverage == 92ms)
+name=phonerep$train_set$test_set$dur
+python collect_reps.py $test_set $confdir/corpus_"$test_set".txt  $confdir/feat_"$train_set"_"$test_set".txt $confdir/model_"$train_set".txt $repdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$test_set".txt --verbose --dur $dur
+
+
+
+###
+# From model-rep csv, plot number of unique rep for selected phone+context (this is an example, needs to be done for all train_set/test_set combinations of interest). To check that the exclusion of stimuli based on listening tests does not make a big difference in the results, simply remove the "--exclude_phones" option and its argument in the calls to modelrep_given_phoncat.py below.
+###
+# the content of the phone_rep folder of the no_phon_cats git repo (https://github.com/Thomas-Schatz/no_phon_cats) should be on path for the following to work
+
+# Counting unq reps
+dur=46  # central +/- dur ms (i.e. total coverage == 2 x $dur ms)
+
+confdir=$root/eval/no_phon_cats/conf
+repdir=$root/eval/no_phon_cats/phone_rep
+countdir=$root/eval/no_phon_cats/phone_rep_count
+figdir=$root/eval/no_phon_cats/phone_rep_fig
+train_set=WSJ
+test_set=WSJ
+for seed in {0..9}
+do
+  # within speaker
+  name=countPhonerep$seed$train_set$test_set$dur
+  in_file=$repdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$test_set".txt
+  out_file=$countdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$test_set"_most_conservative"$seed".txt
+  fig_file_l=$figdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$test_set"_most_conservative_lb"$seed".pdf
+  fig_file_u=$figdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$test_set"_most_conservative_ub"$seed".pdf
+  python modelrep_given_phoncat.py $in_file $out_file $fig_file_l $fig_file_u --by_spk --by_word --by_phon_context --max_time=30 --sample_items --seed=$seed --verbose --exclude_phones $confdir/to_exclude_"$test_set"_in_spk.txt
+
+  # across speaker
+  name=countPhonerepMultiSpk$seed$train_set$test_set$dur
+  in_file=$repdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$test_set".txt
+  out_file=$countdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$test_set"_most_conservative_multispk"$seed".txt
+  fig_file_l=$figdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$test_set"_most_conservative_multispk_lb"$seed".pdf
+  fig_file_u=$figdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$test_set"_most_conservative_multispk_ub"$seed".pdf
+  python /home/thomas/lib/no_phon_cats/no_phon_cats/phone_rep/modelrep_given_phoncat.py $in_file $out_file $fig_file_l $fig_file_u --by_word --by_phon_context --max_time=30 --sample_items --sampling_type=across_spk --seed=$seed --verbose
+done
+
+
+###
+# saving cp_data_ (only need to do it for test sets of interest, here WSJ and GPJ)
+###
+
+dur=46  # central +/- dur ms (i.e. total coverage == 2 x $dur ms)
+confdir=$root/eval/no_phon_cats/conf
+repdir=$root/eval/no_phon_cats/phone_rep
+countdir=$root/eval/no_phon_cats/phone_rep_count
+figdir=$root/eval/no_phon_cats/phone_rep_fig
+test_set=WSJ
+
+# within speaker
+name=contextphones_most_conservative_"$test_set"
+in_file=$repdir/dominant_units_"$dur"ms_around_central_frame_"$test_set"_"$test_set".txt
+out_file=$countdir/contextphones_most_conservative_"$test_set"
+fig_file_l=ignored
+fig_file_u=ignored
+python modelrep_given_phoncat.py $in_file $out_file $fig_file_l $fig_file_u --by_spk --by_word --by_phon_context --max_time=30 --verbose --exclude_phones $confdir/to_exclude_"$test_set"_in_spk.txt --cp_data
+
+# across speaker
+name=contextphones_most_conservative_multispk_"$test_set"
+in_file=$repdir/dominant_units_"$dur"ms_around_central_frame_"$test_set"_"$test_set".txt
+out_file=$countdir/contextphones_most_conservative_multispk_"$test_set"
+fig_file_l=ignored
+fig_file_u=ignored
+python /home/thomas/lib/no_phon_cats/no_phon_cats/phone_rep/modelrep_given_phoncat.py $in_file $out_file $fig_file_l $fig_file_u --by_word --by_phon_context --max_time=30 --verbose --cp_data
+
+
+
+###################################################################
+# For DPGMM models trained on 1/10th corpora (Figures S9 and S10) #
+###################################################################
+
+
+###
+# Setting up data directory structrure
+###
+
+cd $root/eval
+mkdir no_phon_cats_1h
+cd no_phon_cats_1h
+mkdir conf
+mkdir phone_rep
+mkdir err
+mkdir out
+mkdir phone_rep_count
+mkdir phone_rep_fig
+mkdir unit_activation
+
+
+
+###
+# Generating conf files
+###
+# the content of the subfolder results/no_phon_cats of the perceptual-tuning-pnas git repository should be on path for the following to work
+
+# the following values are just one example and the following needs to be done for each train_set, each test_set or each train s_set + test_set combination of interest as indicated
+train_set=WSJ 
+test_set=WSJ
+test_coset=GPJ
+
+### Once for each `test_set` value:
+python get_corpus_files.py $root/corpora/ $test_set $test_coset $root/eval/no_phon_cats_1h/conf/corpus_"$test_set".txt
+
+### Once for each `train_set` value:
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  echo "GMM-model: $root/models/dpgmm/$train_set/models/subcorpora/10subsets__subset"$i"/1501-final.mat" > $root/eval/no_phon_cats_1h/conf/model_"$train_set"_"$i".txt
+done
+
+python get_model_files.py $root/models/supervised_baseline/$train_set/transitions.txt  $root/models/supervised_baseline/$train_set/phones.txt $root/models/dpgmm/$train_set/models/full_train_set/1501-final.mat $root/eval/no_phon_cats/conf/model_"$train_set".txt
+
+### Once for each `test_set/train_set` pair:
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  echo "GMM: $root/models/dpgmm/$train_set/posteriors/subcorpora/test"$test_set"_10_"$i"_final.features" > $root/eval/no_phon_cats_1h/conf/feat_"$train_set"_"$i"_"$test_set".txt
+done
+
+
+
+###
+# Copy phone duration statistics and cp_data from earlier analyses
+###
+cp $root/eval/no_phon_cats/unit_activation/forced_alignment_durs_* $root/eval/no_phon_cats_1h/unit_activation/
+cp $root/eval/no_phon_cats/phone_rep_count/contextphones* $root/eval/no_phon_cats_1h/phone_rep_count/
+
+
+
+###
+# Get activation statistics (this is an example, needs to be done for all train_set/test_set combinations of interest)
+###
+# the content of the unit_activations folder of the no_phon_cats git repo (https://github.com/Thomas-Schatz/no_phon_cats) should be on path for the following to work
+
+train_set=WSJ
+test_set=WSJ
+
+max_nb_frame=0  # 1 2 3
+duration_test_type=basic  # conservative
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+confdir=$root/eval/no_phon_cats_1h/conf
+resdir=$root/eval/no_phon_cats_1h/unit_activation
+
+for batch in 1 2 3 4 5 6 7 8 9 10; do
+  name=activation_"$train_set"_10_"$batch"_"$test_set"_skip${max_nb_frame}_${duration_test_type}
+  python main.py $test_set $confdir/corpus_"$test_set".txt  $confdir/feat_"$train_set"_"$batch"_"$test_set".txt $confdir/model_"$train_set"_"$batch".txt $resdir/"$name" --verbose --max_nb_frame $max_nb_frame --duration_test_type $duration_test_type
+done
+
+
+
+###
+# Get model-reps for each phone+context in a csv (this is an example, needs to be done for all train_set/test_set combinations of interest)
+###
+# the content of the phone_rep folder of the no_phon_cats git repo (https://github.com/Thomas-Schatz/no_phon_cats) should be on path for the following to work
+
+train_set=WSJ
+test_set=WSJ
+
+dur=46  # central +/- dur ms (i.e. total coverage == 92ms ## average duration of a phone across GPJ and WSJ)
+confdir=$root/eval/no_phon_cats_1h/conf
+repdir=$root/eval/no_phon_cats_1h/phone_rep
+
+for batch in 1 2 3 4 5 6 7 8 9 10; do
+  name=phonerep_"$train_set"_"$batch"_"$test_set"_"$dur"
+  python collect_reps.py $test_set $confdir/corpus_"$test_set".txt  $confdir/feat_"$train_set"_"$batch"_"$test_set".txt $confdir/model_"$train_set"_"$batch".txt $repdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set".txt --verbose --dur $dur
+done
+
+
+###
+# From model-rep csv, plot number of unique rep for selected phone+context (this is an example, needs to be done for all train_set/test_set combinations of interest). To check that the exclusion of stimuli based on listening tests does not make a big difference in the results, simply remove the "--exclude_phones" option and its argument in the calls to modelrep_given_phoncat.py below.
+###
+# the content of the phone_rep folder of the no_phon_cats git repo (https://github.com/Thomas-Schatz/no_phon_cats) should be on path for the following to work
+
+train_set=WSJ
+test_set=WSJ
+
+dur=46  # central +/- dur ms (i.e. total coverage == 2 x $dur ms)
+confdir=$root/eval/no_phon_cats_1h/conf
+repdir=$root/eval/no_phon_cats_1h/phone_rep
+countdir=$root/eval/no_phon_cats_1h/phone_rep_count
+figdir=$root/eval/no_phon_cats_1h/phone_rep_fig
+for batch in 1 2 3 4 5 6 7 8 9 10; do
+  for seed in {0..9}
+  do
+    # within speaker
+    name=countPhonerep$seed$train_set$batch$test_set$dur
+    in_file=$repdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set".txt
+    out_file=$countdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set"_most_conservative"$seed".txt
+    fig_file_l=$figdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set"_most_conservative_lb"$seed".pdf
+    fig_file_u=$figdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set"_most_conservative_ub"$seed".pdf
+    python modelrep_given_phoncat.py $in_file $out_file $fig_file_l $fig_file_u --by_spk --by_word --by_phon_context --max_time=30 --sample_items --seed=$seed --verbose --exclude_phones $confdir/to_exclude_"$test_set"_in_spk.txt
+
+
+    # within speaker without excluding weird sounding stimulus
+    name=countPhonerep$seed$train_set$batch$test_set$dur
+    name="$name"_noexclusion
+    in_file=$repdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set".txt
+    out_file=$countdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set"_most_conservative"$seed"_noexclusion.txt
+    fig_file_l=$figdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set"_most_conservative_lb"$seed"_noexclusion.pdf
+    fig_file_u=$figdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set"_most_conservative_ub"$seed"_noexclusion.pdf
+    python modelrep_given_phoncat.py $in_file $out_file $fig_file_l $fig_file_u --by_spk --by_word --by_phon_context --max_time=30 --sample_items --seed=$seed --verbose
+
+
+    # across speaker
+    name=countPhonerepMultiSpk$seed$train_set$batch$test_set$dur
+    in_file=$repdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set".txt
+    out_file=$countdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set"_most_conservative_multispk"$seed".txt
+    fig_file_l=$figdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set"_most_conservative_multispk_lb"$seed".pdf
+    fig_file_u=$figdir/dominant_units_"$dur"ms_around_central_frame_"$train_set"_"$batch"_"$test_set"_most_conservative_multispk_ub"$seed".pdf
+    python /home/thomas/lib/no_phon_cats/no_phon_cats/phone_rep/modelrep_given_phoncat.py $in_file $out_file $fig_file_l $fig_file_u --by_word --by_phon_context --max_time=30 --sample_items --sampling_type=across_spk --seed=$seed --verbose
+  done
+done

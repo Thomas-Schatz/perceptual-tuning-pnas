@@ -1,0 +1,93 @@
+# MODELS' TRAINING
+# This file is not meant to be ran directly. It should instead be read and adapted as needed.
+# This uses results of computations from data_prep.txt.
+
+# Change this as appropriate for your system
+export root=/scratch1/users/thomas/perceptual-tuning-data  # data folder for the project
+export kld_root=/cm/shared/apps/kaldi  # this should point to a working kaldi install
+export matlab_cmd=matlab  # this should point to a working matlab executable (I used matlab2016b)
+
+
+
+#####
+# Extracting input features (MFCC) for DPGMM training (with kaldi)
+#####
+# the content of the subfolder tools/kaldi_feats of the perceptual-tuning-pnas git repository should be on path for the following to work
+
+# Set up folders
+cd $root
+mkdir models
+cd models
+mkdir dgpmm
+cd dpgmm
+export corpus=CSJ  # change for other corpora
+export cocorpus=BUC  # BUC with CSJ and WSJ with GPJ
+mkdir $corpus
+cd $corpus
+mkdir features
+mkdir models
+
+# Create a utt2spk and segment files (without .wav extensions) where the utterances are actually whole recordings
+mkdir $root/models/dpgmm/$corpus/input_feats
+mkdir $root/models/dpgmm/$corpus/input_feats/corpus_data
+python recordings_as_utts.py $root/corpora/$corpus/"$cocorpus"_matched_data_train $root/models/dpgmm/$corpus/input_feats/corpus_data
+
+# Setup kaldi env
+# the 'setup_cmd' and 'setup_path' functions in the kaldi_env.py script should be changed appropriately, according to your computing environment 
+python kaldi_env.py $kld_root $root/models/dpgmm/$corpus/input_feats/recipe $root/corpora/$corpus/"$cocorpus"_matched_data_train/wavs $root/models/dpgmm/$corpus/input_feats/corpus_data/utt2spk.txt $root/models/dpgmm/$corpus/input_feats/corpus_data/segments.txt
+# (with an abkhazia formatted corpus it is necessary to pass the segment file to `kaldi_env.py` so that only wavefiles actually used in the subcorpus are listed in wav.scp).
+
+# Extract MFCC with kaldi
+cd $root/models/dpgmm/$corpus/input_feats/recipe
+mkdir exp; mkdir conf; touch conf/mfcc.conf
+. cmd.sh
+. path.sh
+utils/utt2spk_to_spk2utt.pl data/main/utt2spk > data/main/spk2utt
+steps/make_mfcc.sh --mfcc-config conf/mfcc.conf --nj 20 --cmd "$train_cmd" data/main exp/make_mfcc mfcc
+add-deltas --delta-window=3 --delta-order=2 scp:data/main/feats.scp ark:- | apply-cmvn-sliding --norm-vars=false --center=true --cmn-window=300 ark:- ark,t:final_feats/mfcc_delta_cmn.ark
+python kaldif2h5f.py final_feats/mfcc_delta_cmn.ark final_feats/mfcc_delta_cmn.features
+rm final_feats/mfcc_delta_cmn.ark  # to save disk space
+mv final_feats/mfcc_delta_cmn.features ../../features/train.features
+rmdir final_feats
+
+
+
+#####
+# DPGMM on full training set
+#####
+# the content of the subfolders tools/dpgmm and tools/dpmm_subclusters_2014-08-06/Gaussian of the perceptual-tuning-pnas git repository should be on path for the following to work (the latter is a very slightly customized version of J. Chang and J. W. Fisher II, "Parallel Sampling of DP Mixtures Models using Sub-Cluster Splits", Neurips 2013)
+
+export corpus=BUC  # change for other corpora
+export cocorpus=CSJ  # BUC with CSJ and WSJ with GPJ
+cd $root/models/dpgmm/$corpus
+
+# put features in mat file
+python h5f2mat.py ./features/train.features ./features/train.mat --vad_file=$root/corpora/$corpus/"$cocorpus"_matched_data_train/segments.txt
+feat_mat=$root/models/dpgmm/$corpus/features/train.mat
+model_dir=$root/models/dpgmm/$corpus/models/full_train_set
+
+# train dpgmm. The following is supposed to be ran on a machine with 15 cpus and can take ~10h
+$matlab_cmd -nojvm -r "feat_mat = getenv('feat_mat'); model_dir = getenv('model_dir'); my_run_dpgmm_subclusters(feat_mat, model_dir, 15, true); exit;"
+
+
+
+#####
+# DPGMM training on smaller subsets of training set
+#####
+# the content of the subfolders tools/dpgmm and tools/dpmm_subclusters_2014-08-06/Gaussian of the perceptual-tuning-pnas git repository should be on path for the following to work (the latter is a very slightly customized version of J. Chang and J. W. Fisher II, "Parallel Sampling of DP Mixtures Models using Sub-Cluster Splits", Neurips 2013)
+
+# example for subset 1 out of 10 for BUC corpus
+# this needs to be done for each corpus for subsets 1-10 out of 10; 1, 11, 21,…, 91 out of 100 and 1, 101, 201,…, 901 out of 1000
+export corpus=BUC  # change for other corpora
+export cocorpus=CSJ  # BUC with CSJ and WSJ with GPJ
+export n_subsets=10
+export subset_id=1
+cd $root/models/dpgmm/$corpus
+
+# put features in mat file
+python h5f2mat.py ./features/train.features ./features/subcorpora/train_"$n_subsets"subsets__subset"$subset_id".mat --vad_file=$root/corpora/$corpus/subcorpora/segments__"$n_subsets"subsets__subset"$subset_id".txt
+
+# train dpgmm. The following is supposed to be ran on a machine with 15 cpus (should be much faster than training on the full training set)
+feat_mat=$root/models/dpgmm/$corpus/features/subcorpora/train_"$n_subsets"subsets__subset"$subset_id".mat
+model_dir=$root/models/dpgmm/$corpus/models/subcorpora/"$n_subsets"subsets__subset"$subset_id"
+$matlab_cmd -nojvm -r "feat_mat = getenv('feat_mat'); model_dir = getenv('model_dir'); my_run_dpgmm_subclusters(feat_mat, model_dir, 15, true); exit;"

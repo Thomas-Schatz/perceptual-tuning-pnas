@@ -1,0 +1,30 @@
+###########################################################
+# Creating a feature file with h5features (basic example) #
+###########################################################
+# For more, see the h5features doc (for example, see: http://h5features.readthedocs.io/en/master/overview.html#basic-usage)
+
+
+1. Install h5features 
+
+  1.1 Get a python install with numpy, scipy, h5py, etc. on path (the easiest is to use python-anaconda: https://www.anaconda.com/what-is-anaconda/)
+
+  1.2 run 'pip install h5features' in a terminal (another option is to install it from the git: https://github.com/bootphon/h5features)
+
+
+2. Create the file
+
+  2.1 Launch python and instantiate the following variables as desired:
+
+      - feature_file: string indicating the path to the file where the features will be stored
+      - utts: list of utterances id (as specified in 'segments.txt')
+      - times: list of numpy arrays containing for each utterance a 1-d numpy array of size nf(utt) the number of feature frames for that utterance, containing timestamps in seconds, given relative to the beginning of the utterance (as specified in 'segments.txt')
+      - feats: list of numpy arrays containing for each utterance a 2-d numpy array of size nf(utt) x d, where d is the dimension of the features space, containing the features for each frame of the utterance.
+
+      (The order of utterances and frames should match across all lists and arrays. Frames should be given in increasing order of the timestamps)
+
+  2.2. Run the following commands within python:
+
+      import h5features as h5f
+      with h5f.Writer(feature_file) as writer:   
+        data = h5f.Data(utts, times, feats, check=True)
+        writer.write(data, 'features')

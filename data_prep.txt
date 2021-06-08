@@ -1,0 +1,110 @@
+# DATA PREPARATION
+# This file is not meant to be ran directly. It should instead be read and adapted as needed.
+# It requires at least python-anaconda and the abkhazia python module (https://github.com/bootphon/abkhazia)
+# file paths should be adapted as appropriate
+
+
+# Change this as appropriate for your system
+export root=/scratch1/users/thomas/perceptual-tuning-data  # data folder for the project
+export raw_CSJ=/scratch1/data/raw_data/CSJ  # folder with raw version of CSJ corpus
+export raw_BUC=/scratch1/data/raw_data/GPJ  # folder with raw version of GPJ corpus
+export raw_WSJ=/scratch1/data/raw_data/WSJ_LDC  # folder with raw version of WSJ corpus
+export raw_GPJ=/scratch1/data/raw_data/BUC  # folder with raw version of BUC corpus
+
+
+#####
+# Buckeye and Globalphone Japanese have a lot of internal inconsistencies and need to be cleaned up first
+#####
+export cleaned_BUC=/scratch1/data/raw_data/BUCKEYE_revised_bootphon
+export cleaned_GPJ=/scratch1/users/thomas/GPJ_LSCP
+
+
+#####
+# Convert corpora into a standardized format
+#####
+
+mkdir $root/corpora
+
+mkdir $root/corpora/CSJ
+abkhazia prepare sps_csj $raw_CSJ -o $root/corpora/CSJ
+
+mkdir $root/corpora/WSJ
+abkhazia prepare wsj -s 3 $raw_WSJ -o $root/corpora/WSJ
+
+mkdir $root/corpora/BUC
+abkhazia prepare buckeye_manual $cleaned_BUC -o $root/corpora/BUC
+
+mkdir $root/corpora/GPJ
+abkhazia prepare globalphone $cleaned_GPJ -o $root/corpora/GPJ -l japanese
+
+# run special script to remove infrequent phones (there is a harcoded path in that script that should be changed as appropriate)
+# the content of the subfolder data of the perceptual-tuning-pnas git repository should be on path for the following to work
+python remove_phones.py
+# adjust file structure to standard recipe (note that if wavs were not copied, this might break symbolic links
+mv $root/corpora/GPJ/japanese/* $root/corpora/GPJ/
+rmdir $root/corpora/GPJ/japanese
+mv  $root/corpora/GPJ/data2/*.txt  $root/corpora/GPJ/data/
+mv  $root/corpora/GPJ/data2/*.log $root/corpora/GPJ/data
+rm -Rf $root/corpora/GPJ/data2
+
+# Merge wavs to get a single wav per speaker
+python merge_speaker_wavs.py $root/corpora/GPJ/data $root/corpora/GPJ/data_spkmerged .5  # 500ms of padding between merged files
+# Then manually: remove all other data folders and mv `data_spkmerged` to data.
+
+
+
+#####
+# Generate forced alignments for each corpus (here for BUC corpus, do the same for WSJ, CSJ and GPJ) (done on full corpora)
+#####
+# Extracting features (for forced alignment, we just want standard features):
+abkhazia features mfcc $root/corpora/BUC --cmvn -v --recipe
+# abkhazia requires us to instantiate a LM even though it is not used for alignment. So training a word bigram on Buckeye (the -w option is not for word bigram but for word-position-dependent phones, word bigram is the default):
+abkhazia language --recipe -w -l word -v $root/corpora/BUC
+# Then training acoustic models
+abkhazia acoustic monophone $root/corpora/BUC --recipe -v -w -l word
+abkhazia acoustic triphone -i $root/corpora/BUC/monophone $root/corpora/BUC --recipe -v -w -l word
+abkhazia acoustic triphone-sa -i $root/corpora/BUC/triphone $root/corpora/BUC --recipe -v -w -l word
+# Aligning with triphone-sa (write word and phones + posterior prob)
+abkhazia align $root/corpora/BUC -a $root/corpora/BUC/triphone-sa -l $root/corpora/BUC/language --recipe -v --post
+# I did some sanity checks on alignment files using code in the git under `data/alignments_checks.py` (should be done by hand, the code in the script is not cleaned up at all)
+
+
+
+#####
+# Remove sentences for which forced alignment failed (again example of BUC corpus, but needs to be done for all 4 corpora)
+#####
+# the content of the subfolder data of the perceptual-tuning-pnas git repository should be on path for the following to work
+python remove_phones.py
+cd $root/corpora/BUC
+python aligned_subcorpus.py ./data ./align/alignment.txt ./aligned_data
+
+
+
+#####
+# Choose matched sub-corpora across languages with balanced train/test splits
+#####
+# Using utilities in perceptual-tuning-pnas git in `data/match_corpora.py`
+cd /scratch1/users/thomas/perceptual-tuning/data  # adapt to your system
+ipython
+# Then in ipython run:
+import match_corpora as mc
+import os.path as p
+bigC, smallC ='CSJ', 'BUC'  # change just these two lines for WSJ/GPJ
+train_proportion, group_size  = 1, 2  # 1,2 for BUC/CSJ; 2,3 for GPJ/WSJ
+root = '/scratch1/users/thomas/perceptual-tuning-data/corpora'  # adapt to your system
+corpora_folders = {smallC: p.join(root, smallC+'/aligned_data'), bigC: p.join(root, bigC+'/aligned_data')}
+out_folders = {smallC: p.join(root, smallC+'/'+bigC+'_matched_data'), bigC: p.join(root, bigC+'/'+smallC+'_matched_data')}
+root = '/scratch1/users/thomas/perceptual-tuning/data/genders'  # adapt to your system
+gender_files = {smallC: p.join(root, 'spk2gender_'+smallC+'.txt'), bigC: p.join(root, 'spk2gender_'+bigC+'.txt')}
+matching_data = mc.load_spk_matching_data(corpora_folders, gender_files)
+thr = .05
+spk_match, spk_gender, relative_diff, gender_dur = mc.match_speakers_big2small(matching_data, bigC, smallC, threshold=thr)
+mc.create_matching_corpora(corpora_folders, out_folders, spk_match, trim=True, relative_diff=relative_diff, threshold=thr)
+mc.twin_balanced_split(spk_match, spk_gender, out_folders, out_folders, group_size=group_size, train_proportion=train_proportion)
+# there is also a script to compute some statistics on the resulting balanced sub-corpora
+
+
+#####
+# Create smaller subcorpora to look at trajectory of effects when data amount changes
+#####
+# Run jupyter notebook « Dataset selection for DPGMM training with increasing amount of data.ipynb » from perceptual-tuning-pnas/data git repo

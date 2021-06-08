@@ -1,0 +1,58 @@
+# FINAL ANALYSES AND FIGURE PLOTS
+# This file is not meant to be ran directly. It should instead be read and adapted as needed.
+# This uses results of computations from all other files
+
+
+# Run the jupyter notebooks from perceptual-tuning-pnas/results as indicated below with the following libraries installed/on your pythonpath:
+#   numpy, scipy, pandas, matplotlib, seaborn, itertools, h5features, scone-phobia (https://github.com/Thomas-Schatz/scone-phobia) and rala (https://github.com/Thomas-Schatz/rala)
+# Change the hardcoded path(s) at the top of each notebook as appropriate for your system.
+# Each notebook needs to access the results of some of the previous computations and expects those results to be organized with a particular folder structure and particular file naming conventions. To see the required folder structure and naming conventions you can access our original computation results at https://osf.io/d2fpb/. Here are some naming conventions that might not be completely transparent:
+#  - DPGMM trained on full training set: dpgmm_novtln_vad
+#  - DPGMM trained on subsets of training set: dpgmm_novtln_corpus
+#  - supervised HMM baseline: AMtri1_sat_small_LMtri1satsmall
+#  - MFCC baseline: mfcc_novtln
+
+
+###
+# Notebooks to run
+###
+
+# "GMM models convergence checks" notebook
+#   - Fig. S11
+#   - uses computation results in folder ./convergence/results
+
+# "avg_error" notebook
+#   - Fig. 2A, S1, S3
+#   - uses computation results in folder ./ABX/mp_scores (including 'resampling' subfolder)
+
+# "'Native' advantages" notebook
+#   - Fig. 2B, S4
+#   - uses computation results in folder ./ABX/mp_scores
+
+# "RL_AmEng" notebook
+#   - Fig. 3A, 3C, S2, S5
+#   - uses computation results in folder ./ABX/mp_scores (including 'resampling' subfolder)
+
+# "ABX errors as a function of training data amount" notebook
+#   - Fig. 3B
+#   - uses computation results in folder ./ABX/mp_scores
+
+# "RALA" notebook
+#   - Fig. S6
+#   - uses computation results in folder ./rala/features
+
+# "Unit activations" notebook
+#   - Pre-requisite for "Figures qualitative analysis" notebook
+#   - uses computation results in folders ./no_phon_cats/unit_activation and ./no_phon_cats_1h/unit_activation
+
+# "Number of learned categories" notebook
+#   - Pre-requisite for "Figures qualitative analysis" notebook
+#   - uses computation results in folders ./no_phon_cats/models ./no_phon_cats/unit_activation ./no_phon_cats_1h/models and ./convergence/models
+
+# "Model representation of phonetic categories" notebook
+#   - Pre-requisite for "Figures qualitative analysis" notebook
+#   - uses computation results in folders ./no_phon_cats/phone_rep_count and ./no_phon_cats_1h/phone_rep_count
+
+# "Figures qualitative analyses" notebook
+#    - Fig. 4, S7, S8, S9, S10
+#    - input folders: uses output produced by the three previous notebooks

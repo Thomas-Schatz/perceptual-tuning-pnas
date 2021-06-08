@@ -1,0 +1,46 @@
+This is a version of the code from
+  J. Chang and J. W. Fisher II, "Parallel Sampling of DP Mixtures
+    Models using Sub-Cluster Splits". Neural Information Processing
+    Systems (NIPS 2013), Lake Tahoe, NV, USA, Dec 2013.
+very slightly modified by Thomas Schatz.
+
+Original README:
+
+  The following code is provided as is.  It was used in:
+
+  [1] J. Chang and J. W. Fisher II, "Parallel Sampling of DP Mixtures
+      Models using Sub-Cluster Splits". Neural Information Processing
+      Systems (NIPS 2013), Lake Tahoe, NV, USA, Dec 2013.
+
+  Any papers using this code should cite [1] accordingly.
+
+  The software requires the following libraries:
+  1) GNU Scientific Library: http://www.gnu.org/software/gsl/
+  2) Eigen library: http://eigen.tuxfamily.org/
+
+  The software has been tested under Matlab R2012a and gcc 4.6.3.
+
+  After unpacking the file and installing the required libraries,
+  start Matlab and run the following:
+
+  >> cd <root dir>/Gaussian
+  >> compile_MEX
+  >> cd <root dir>/Multinomial
+  >> compile_MEX
+
+  If no errors are reported, you can then run demo.m in the Gaussian
+  or Multinomial directories.
+
+  If errors are reported, you may need to debug a little:
+  1) Check the installation of GSL and Eigen.
+  2) Check to make sure your compiler supports OpenMP
+  3) If you are not running a Linux OS, try commenting out the line with
+       "DFLAGS = [DFLAGS ' -DUSESTOPWATCH '];"
+     This will disable timing, but still allow the algorithms to run.
+
+  If all else fails, you can try to email me at jchang7@csail.mit.edu.
+  I will try to help if I can.
+
+  Revision History
+  ===================
+  2014-08-07 : fixed empty cluster bug

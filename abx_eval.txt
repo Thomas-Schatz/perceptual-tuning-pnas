@@ -1,0 +1,100 @@
+# RUNNING ABX DISCRIMINATION TASKS
+# This file is not meant to be ran directly. It should instead be read and adapted as needed.
+# This uses results of computations from data_prep.txt and model_train.txt.
+
+# Change this as appropriate for your system
+export root=/scratch1/users/thomas/perceptual-tuning-data  # data folder for the project
+
+mkdir $root/eval
+
+###
+# Instantiate tasks
+###
+# the content of the subfolder eval/abx of the perceptual-tuning-pnas git repository should be on path for the following to work
+
+mkdir $root/eval/abx
+
+# Generate item files
+# the following script contain hard-coded path that should be edited as appropriate for your system
+python generate_items.py
+
+# Generate thresholded item files
+# the following script contain hard-coded path that should be edited as appropriate for your system
+python threshold_item.py
+
+# Generate task stats (example with BUC, but needs to be done for all 4 corpora)
+python generate_task.py $root/eval/abx/BUC_threshold_2_5.item $root/eval/abx/BUC.stat --stats
+
+# Generate task files (example with BUC, but needs to be done for all 4 corpora)
+python generate_task.py $root/eval/abx/BUC_threshold_2_5.item $root/eval/abx/BUC.task
+
+
+
+###
+# Get test set stimuli MFCC (with kaldi) -> needs to be done for each of the 4 corpora
+###
+# the content of the subfolder tools/kaldi_feats of the perceptual-tuning-pnas git repository should be on path for the following to work
+export corpus=CSJ  # 4 possible choices
+export cocorpus=BUC  # determined by previous line
+cd $root/models/dpgmm/$corpus/input_feats/recipe/data/
+mkdir test
+python recordings_as_utts.py $root/corpora/$corpus/"$cocorpus"_matched_data_test $root/models/dpgmm/$corpus/input_feats/recipe/data/test/
+cd test/
+mv utt2spk.txt utt2spk
+awk '{sub($2, "'$root'/corpora/'$corpus'/'$cocorpus'_matched_data_test/wavs/"$2); print}' segments.txt > wav.scp
+rm segments.txt
+cp $root/corpora/$corpus/"$cocorpus"_matched_data_test/utt2spk.txt ./utt2spk
+
+cd ../..
+mkdir mfcc_test
+. path.sh
+. cmd.sh
+utils/utt2spk_to_spk2utt.pl data/test/utt2spk > data/test/spk2utt
+steps/make_mfcc.sh --nj 12 --cmd "$train_cmd" data/test exp/mfcc_test mfcc_test/no_vtln
+cp data/test/feats.scp data/test/novtln_feats.scp
+add-deltas --delta-window=3 --delta-order=2 scp:data/test/novtln_feats.scp ark:- | apply-cmvn-sliding --norm-vars=false --center=true --cmn-window=300 ark:- ark,t:final_feats/novtln.ark
+python kaldif2h5f.py final_feats/novtln.ark final_feats/novtln.features
+rm final_feats/novtln.ark
+mv final_feats/novtln.features $root/models/dpgmm/$testcorpus/features/test"$testcorpus".features
+
+
+
+###
+# Get dpgmm posterior representations from test set stimuli MFCC. This need to be done for each of the four test sets for each trained model (including models trained on subcorpora for each corpus)
+###
+# the content of the subfolder tools/dpgmm of the perceptual-tuning-pnas git repository should be on path for the following to work
+export model=BUC
+export testset=BUC
+cd $root/models/dpgmm/$model
+mkdir posteriors
+export OMP_NUM_THREADS=1  # often needed to avoid wild parallelization by numpy
+export MKL_NUM_THREADS=1  # often needed to avoid wild parallelization by numpy
+python extract_posteriors.py ./features/test"$testset".features ./models/full_train_set/1501-final.mat ./posteriors/test"$testset"_final.features
+
+
+
+###
+# Run ABX task (needs to be done once for each trained model, including for ones trained on subcorpora, for supervised baselines trained on full training sets and directly with MFCC input features---using the angular distance instead of the KL-divergence for the latter).
+###
+# the content of the subfolder eval/abx of the perceptual-tuning-pnas git repository should be on path for the following to work
+export trainC=BUC
+export testC=BUC
+export feat=$root/models/dpgmm/$trainC/posteriors/test"$testC".features
+export dis=kl  # cos (we use cos but this is actually the angular distance to be precise)
+export disID=KL  # COS
+export norm=true
+export modelid=dpgmm
+export task=$root/eval/abx/tasks/"$testC".task
+export resid="$modelid"model__"$trainC"train__"$testC"test__"$disID"dis
+export resdir=$root/eval/abx 
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+python run_abx.py $feat $task $resdir $resid $dis $norm
+
+
+###
+# Compute and resample minimal-pair scores
+###
+# follow instructions in scone-phobia repo (https://github.com/Thomas-Schatz/scone-phobia) to
+# 1. precompute minimal pair scores for each ABX results files obtained at the previous step (using scone_phobia/utils/precompute_mp_scores.py)
+# 2. obtain 1000 resamples of those scores for each ABX results files obtained at the previous step (using scone_phobia/utils/resample_mp_scores.py)
